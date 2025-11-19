@@ -2,8 +2,8 @@ import * as pdfjsLib from 'pdfjs-dist';
 
 // Initialize worker. 
 // We use unpkg to ensure we get the correct ESM worker (.mjs) matching the version.
-// PDF.js v5+ requires the .mjs worker when using ESM imports.
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+// We hardcode the version to 5.4.394 to match the import map and avoid runtime mismatches.
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@5.4.394/build/pdf.worker.min.mjs`;
 
 export const convertPdfToImages = async (file: File): Promise<string[]> => {
   const arrayBuffer = await file.arrayBuffer();

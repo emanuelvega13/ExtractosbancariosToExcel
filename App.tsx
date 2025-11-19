@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import JSZip from 'jszip';
+import { zip, ZipObj } from 'fflate';
 import { ProcessedFile, ProcessingStatus } from './types';
 import { DropZone } from './components/DropZone';
 import { ProcessingList } from './components/ProcessingList';
@@ -28,10 +28,6 @@ const App: React.FC = () => {
   const processQueue = async () => {
     setIsProcessing(true);
     
-    // Create a working copy of the files to iterate
-    // In a real app with concurrency, we might use a queue manager.
-    // Here we process sequentially to avoid hitting API rate limits too hard.
-    
     const fileIds = files.map(f => f.id);
 
     for (const id of fileIds) {
@@ -39,7 +35,6 @@ const App: React.FC = () => {
       const currentFile = files.find(f => f.id === id);
       if (!currentFile || currentFile.status === ProcessingStatus.COMPLETED) continue;
 
-      // Update status to PROCESSING
       updateFileStatus(id, ProcessingStatus.PROCESSING, 'Analizando PDF...');
 
       try {
@@ -91,30 +86,38 @@ const App: React.FC = () => {
   };
 
   const downloadAllAsZip = async () => {
-    const zip = new JSZip();
+    const zipFiles: ZipObj = {};
     let count = 0;
 
-    files.forEach((f) => {
+    // Prepare files for zipping
+    for (const f of files) {
       if (f.status === ProcessingStatus.COMPLETED && f.excelBlob) {
         const name = f.file.name.replace(/\.pdf$/i, '.xlsx');
-        zip.file(name, f.excelBlob);
+        const arrayBuffer = await f.excelBlob.arrayBuffer();
+        zipFiles[name] = new Uint8Array(arrayBuffer);
         count++;
       }
-    });
+    }
 
     if (count === 0) return;
 
-    const content = await zip.generateAsync({ type: 'blob' });
-    
-    // Use native DOM method instead of file-saver to avoid import errors
-    const url = URL.createObjectURL(content);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'Estados_Cuenta_Procesados.zip';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    // Generate Zip
+    zip(zipFiles, (err, data) => {
+      if (err) {
+        console.error("Error zipping files:", err);
+        return;
+      }
+      
+      const blob = new Blob([data], { type: 'application/zip' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'Estados_Cuenta_Procesados.zip';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
   };
 
   const completedCount = files.filter(f => f.status === ProcessingStatus.COMPLETED).length;
