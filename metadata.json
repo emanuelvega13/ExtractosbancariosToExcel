@@ -1,0 +1,5 @@
+{
+  "name": "BancoExtracto AI",
+  "description": "Automates the extraction of bank statement movements from PDF files to Excel using Gemini Vision.",
+  "requestFramePermissions": []
+}
