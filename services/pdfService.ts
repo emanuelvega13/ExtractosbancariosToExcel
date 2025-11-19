@@ -9,31 +9,37 @@ export const convertPdfToImages = async (file: File): Promise<string[]> => {
   const arrayBuffer = await file.arrayBuffer();
   const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
   const pdf = await loadingTask.promise;
-  const pageImages: string[] = [];
+  
+  // Create an array of page numbers [1, 2, ..., numPages]
+  const pageNumbers = Array.from({ length: pdf.numPages }, (_, i) => i + 1);
 
-  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-    const page = await pdf.getPage(pageNum);
-    const viewport = page.getViewport({ scale: 2.0 }); // High scale for better OCR/Vision
+  // Render all pages in parallel
+  const pageImages = await Promise.all(
+    pageNumbers.map(async (pageNum) => {
+      const page = await pdf.getPage(pageNum);
+      // Reduced scale from 2.0 to 1.5: faster rendering, smaller payload, sufficient for text
+      const viewport = page.getViewport({ scale: 1.5 }); 
 
-    const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d');
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
 
-    if (!context) continue;
+      if (!context) return null;
 
-    canvas.height = viewport.height;
-    canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
 
-    await page.render({
-      canvasContext: context,
-      viewport: viewport,
-    }).promise;
+      await page.render({
+        canvasContext: context,
+        viewport: viewport,
+      }).promise;
 
-    // Convert to base64 jpeg
-    const base64 = canvas.toDataURL('image/jpeg', 0.8);
-    // Remove data:image/jpeg;base64, prefix for Gemini
-    const base64Data = base64.split(',')[1];
-    pageImages.push(base64Data);
-  }
+      // Convert to base64 jpeg
+      const base64 = canvas.toDataURL('image/jpeg', 0.8);
+      // Remove data:image/jpeg;base64, prefix for Gemini
+      return base64.split(',')[1];
+    })
+  );
 
-  return pageImages;
+  // Filter out any failed renders (nulls)
+  return pageImages.filter((img): img is string => img !== null);
 };

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { zip, ZipObj } from 'fflate';
 import { ProcessedFile, ProcessingStatus } from './types';
 import { DropZone } from './components/DropZone';
@@ -11,6 +11,10 @@ import { Bot, FileSpreadsheet, FolderInput, Download } from 'lucide-react';
 const App: React.FC = () => {
   const [files, setFiles] = useState<ProcessedFile[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  
+  // Ref to access latest files state inside async functions without dependency cycles
+  const filesRef = useRef<ProcessedFile[]>([]);
+  filesRef.current = files;
 
   const handleFilesDropped = useCallback((newFiles: File[]) => {
     const newProcessedFiles: ProcessedFile[] = newFiles.map((file) => ({
@@ -25,64 +29,82 @@ const App: React.FC = () => {
     setFiles((prev) => [...prev, ...newProcessedFiles]);
   }, []);
 
-  const processQueue = async () => {
-    setIsProcessing(true);
-    
-    const fileIds = files.map(f => f.id);
-
-    for (const id of fileIds) {
-      // Get fresh state
-      const currentFile = files.find(f => f.id === id);
-      if (!currentFile || currentFile.status === ProcessingStatus.COMPLETED) continue;
-
-      updateFileStatus(id, ProcessingStatus.PROCESSING, 'Analizando PDF...');
-
-      try {
-        // 1. PDF -> Images
-        const images = await convertPdfToImages(currentFile.file);
-        updateFileStatus(id, ProcessingStatus.PROCESSING, `Extrayendo datos con IA (${images.length} páginas)...`);
-
-        // 2. Images -> Gemini Data
-        const movements = await extractMovementsFromImages(images);
-        
-        if (movements.length === 0) {
-          throw new Error("No se encontraron movimientos.");
-        }
-
-        updateFileStatus(id, ProcessingStatus.PROCESSING, `Generando Excel (${movements.length} filas)...`);
-
-        // 3. Data -> Excel Blob
-        const excelFileName = currentFile.file.name.replace(/\.pdf$/i, '.xlsx');
-        const excelBlob = generateExcel(movements, excelFileName);
-
-        // 4. Complete
-        setFiles((prev) =>
-          prev.map((f) =>
-            f.id === id
-              ? {
-                  ...f,
-                  status: ProcessingStatus.COMPLETED,
-                  message: `Completado (${movements.length} movs)`,
-                  movements,
-                  excelBlob,
-                }
-              : f
-          )
-        );
-
-      } catch (error: any) {
-        console.error(error);
-        updateFileStatus(id, ProcessingStatus.ERROR, error.message || 'Error desconocido');
-      }
-    }
-
-    setIsProcessing(false);
-  };
-
   const updateFileStatus = (id: string, status: ProcessingStatus, message: string) => {
     setFiles((prev) =>
       prev.map((f) => (f.id === id ? { ...f, status, message } : f))
     );
+  };
+
+  const processSingleFile = async (id: string) => {
+    // Get fresh reference
+    const currentFile = filesRef.current.find(f => f.id === id);
+    if (!currentFile) return;
+
+    try {
+      updateFileStatus(id, ProcessingStatus.PROCESSING, 'Analizando PDF...');
+
+      // 1. PDF -> Images
+      const images = await convertPdfToImages(currentFile.file);
+      updateFileStatus(id, ProcessingStatus.PROCESSING, `Extrayendo datos con IA (${images.length} pgs)...`);
+
+      // 2. Images -> Gemini Data
+      const movements = await extractMovementsFromImages(images);
+      
+      if (movements.length === 0) {
+        throw new Error("No se encontraron movimientos.");
+      }
+
+      updateFileStatus(id, ProcessingStatus.PROCESSING, `Generando Excel (${movements.length} filas)...`);
+
+      // 3. Data -> Excel Blob
+      const excelFileName = currentFile.file.name.replace(/\.pdf$/i, '.xlsx');
+      const excelBlob = generateExcel(movements, excelFileName);
+
+      // 4. Complete
+      setFiles((prev) =>
+        prev.map((f) =>
+          f.id === id
+            ? {
+                ...f,
+                status: ProcessingStatus.COMPLETED,
+                message: `Completado (${movements.length} movs)`,
+                movements,
+                excelBlob,
+              }
+            : f
+        )
+      );
+
+    } catch (error: any) {
+      console.error(`Error processing ${currentFile.file.name}:`, error);
+      updateFileStatus(id, ProcessingStatus.ERROR, error.message || 'Error desconocido');
+    }
+  };
+
+  const processQueue = async () => {
+    if (isProcessing) return;
+    setIsProcessing(true);
+    
+    const pendingFiles = files.filter(f => f.status === ProcessingStatus.PENDING);
+    const CONCURRENCY_LIMIT = 3;
+    
+    let currentIndex = 0;
+
+    const worker = async () => {
+      while (currentIndex < pendingFiles.length) {
+        const file = pendingFiles[currentIndex];
+        currentIndex++;
+        await processSingleFile(file.id);
+      }
+    };
+
+    // Create a pool of workers
+    const workers = Array(Math.min(pendingFiles.length, CONCURRENCY_LIMIT))
+      .fill(null)
+      .map(() => worker());
+
+    await Promise.all(workers);
+    setIsProcessing(false);
   };
 
   const downloadAllAsZip = async () => {
