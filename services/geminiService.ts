@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { Movement } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const ai = new GoogleGenAI({ apiKey: meta.env.VITE_API_KEY });
 
 const MOVEMENT_SCHEMA: Schema = {
   type: Type.OBJECT,
