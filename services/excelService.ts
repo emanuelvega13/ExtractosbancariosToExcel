@@ -3,11 +3,22 @@ import { Movement } from '../types';
 
 export const generateExcel = (movements: Movement[], filename: string): Blob => {
   // 1. Create a worksheet
-  const worksheet = XLSX.utils.json_to_sheet(movements);
+  // We specify the header order explicitly to match the user request
+  const headers = [
+    "num", "fecha", "descripcion", "suc", 
+    "refNumerica", "refAlfanumerica", "autorizacion", 
+    "ordenante", "bancoEmisor", "depositos", "retiros", "saldoMxn"
+  ];
 
-  // 2. Customize Header Names (Optional, but mapping matches strictly)
+  const worksheet = XLSX.utils.json_to_sheet(movements, { header: headers });
+
+  // 2. Customize Header Names (Translate keys to Display Names)
   XLSX.utils.sheet_add_aoa(worksheet, [
-    ["Fecha", "Concepto", "Origen / Referencia", "Depósito", "Retiro", "Saldo"]
+    [
+      "Num", "Fecha", "Descripción", "Suc", 
+      "Ref Numérica", "Ref Alfanumérica", "Autorización", 
+      "Ordenante", "Banco Emisor", "Depósitos", "Retiros", "Saldo MXN"
+    ]
   ], { origin: "A1" });
 
   // 3. Create a workbook

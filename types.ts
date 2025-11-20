@@ -7,12 +7,18 @@ export enum ProcessingStatus {
 }
 
 export interface Movement {
+  num: string;
   fecha: string;
-  concepto: string;
-  origenReferencia: string;
-  deposito: number;
-  retiro: number;
-  saldo: number;
+  descripcion: string;
+  suc: string;
+  refNumerica: string;
+  refAlfanumerica: string;
+  autorizacion: string;
+  ordenante: string;
+  bancoEmisor: string;
+  depositos: number;
+  retiros: number;
+  saldoMxn: number;
 }
 
 export interface ProcessedFile {

@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { Movement } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_API_KEY });
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const MOVEMENT_SCHEMA: Schema = {
   type: Type.OBJECT,
@@ -11,14 +11,20 @@ const MOVEMENT_SCHEMA: Schema = {
       items: {
         type: Type.OBJECT,
         properties: {
-          fecha: { type: Type.STRING, description: "Date of transaction (e.g., '09 JUL')" },
-          concepto: { type: Type.STRING, description: "Description or concept of the transaction" },
-          origenReferencia: { type: Type.STRING, description: "Origin or Reference number" },
-          deposito: { type: Type.NUMBER, description: "Amount deposited. 0 if empty." },
-          retiro: { type: Type.NUMBER, description: "Amount withdrawn. 0 if empty." },
-          saldo: { type: Type.NUMBER, description: "Balance after transaction." },
+          num: { type: Type.STRING, description: "Número de movimiento consecutivo (ej. 1, 2...)" },
+          fecha: { type: Type.STRING, description: "Fecha de operación (ej. '09/07')." },
+          descripcion: { type: Type.STRING, description: "Descripción detallada del movimiento." },
+          suc: { type: Type.STRING, description: "Número o nombre de sucursal (Suc)." },
+          refNumerica: { type: Type.STRING, description: "Referencia Numérica." },
+          refAlfanumerica: { type: Type.STRING, description: "Referencia Alfanumérica." },
+          autorizacion: { type: Type.STRING, description: "Número de autorización." },
+          ordenante: { type: Type.STRING, description: "Nombre del ordenante." },
+          bancoEmisor: { type: Type.STRING, description: "Banco emisor." },
+          depositos: { type: Type.NUMBER, description: "Monto del depósito. 0 si está vacío." },
+          retiros: { type: Type.NUMBER, description: "Monto del retiro. 0 si está vacío." },
+          saldoMxn: { type: Type.NUMBER, description: "Saldo en MXN después del movimiento." },
         },
-        required: ["fecha", "concepto", "deposito", "retiro", "saldo"],
+        required: ["fecha", "descripcion", "depositos", "retiros", "saldoMxn"],
       },
     },
   },
@@ -26,11 +32,6 @@ const MOVEMENT_SCHEMA: Schema = {
 
 export const extractMovementsFromImages = async (base64Images: string[]): Promise<Movement[]> => {
   let allMovements: Movement[] = [];
-
-  // We process pages in batches or individually depending on size. 
-  // For simplicity and reliability, we send all images to Gemini 2.5 Flash which has a large context window.
-  // However, strict rate limits apply. If many pages, consider splitting. 
-  // Here we assume typical statement length (1-5 pages).
 
   try {
     const parts = base64Images.map(img => ({
@@ -41,26 +42,39 @@ export const extractMovementsFromImages = async (base64Images: string[]): Promis
     }));
 
     const prompt = `
-      Analiza las imágenes de este estado de cuenta bancario (Scotiabank u otro similar).
+      Analiza las imágenes de este estado de cuenta bancario (especialmente secciones como "Detalle de movimientos - Depósitos y retiros").
       
       TAREA:
-      1. Busca la tabla o sección titulada "Detalle de tus movimientos" o similar.
-      2. Extrae TODAS las filas de movimientos.
-      3. Ignora filas de saldos anteriores o subtotales que no sean movimientos explícitos.
-      4. Normaliza los datos numéricos (quita símbolos de moneda, convierte a float).
+      1. Busca la tabla principal de movimientos detallados.
+      2. Extrae cada fila mapeando los datos a las siguientes columnas específicas:
+         - Num (número de movimiento)
+         - Fecha
+         - Descripción (Concepto)
+         - Suc (Sucursal)
+         - Ref Numérica
+         - Ref Alfanumérica
+         - Autorización
+         - Ordenante
+         - Banco Emisor
+         - Depósitos
+         - Retiros
+         - Saldo MXN
+      3. Si un campo no existe para una fila, déjalo como cadena vacía "" o 0 si es numérico.
+      4. Normaliza los números (elimina '$' y ',' y convierte a float).
+      5. Ignora filas de subtotales mensuales si no son movimientos individuales.
       
       Devuelve un JSON estrictamente con la estructura solicitada.
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash', // Flash is excellent for document extraction
+      model: 'gemini-2.5-flash',
       contents: {
         parts: [...parts, { text: prompt }]
       },
       config: {
         responseMimeType: "application/json",
         responseSchema: MOVEMENT_SCHEMA,
-        temperature: 0.1, // Low temperature for factual extraction
+        temperature: 0.1, 
       }
     });
 
